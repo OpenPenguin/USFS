@@ -1,49 +1,14 @@
 --[[
     USFS - Ultra-Simple File System
     Developed by Ethan Manzi (coderboy14)
-
-    General:
-        The data block will always grow UP from the TAIL of the disk, and the super-block will always be the first thing at the
-        start! If the data block's name doesn't use the entire provided space, IT MUST BE PADDED!
-
-    Super-Block Structure: (42 bytes)
-        - 00: 2 bytes, block size
-        - 02: 4 bytes, size of data in blocks
-        - 06: 4 bytes, blocks used
-        - 10: 4 bytes, index table length
-        - 14: 4 bytes, file count
-        - 18: 4 bytes, size of reserved area
-        - 22: 2 bytes, patch number
-        - 24: 3 bytes, magic number
-        - 27: 1 bytes, version in BCD
-        - ??: 4 bytes, first table index
-        - ??: 4 bytes, last block
-        - ??: 4 bytes, last folder
-        - ??: 2 bytes, max file name length (in bytes)
-
-    Data Block Structure: (minimum 56 bytes)
-        - 1 bytes, type
-        - 1 bytes, state
-        - 4 bytes, block ID
-        - 4 bytes, file ID
-        - 4 bytes, previous segment
-        - 4 bytes, next segment
-        - 4 bytes, parent ID
-        - 2 bytes, permissions
-        - 4 bytes, pointer (the chunk # of the actual data)
-        - 4 bytes, length
-        - 4 bytes, previous sibling
-        - 4 bytes, next sibling,
-        - 4 bytes, next folder
-        - 4 bytes, first child
-        - 4 bytes, last child
-        - 4 bytes, child count
-        - ? bytes, name     (the maximum length of the name will be specified in the superblock)
 ]]
 
 local USFS = {}
     -- Constants
     local _CONST = {
+        ["defaults"] = {
+            ["chunkSize"] = 512
+        },
         ["magicBytes"] = {0x75, 0x73, 0x34},
         ["superBlock"] = {
             ["size"] = 42,
@@ -96,6 +61,48 @@ local USFS = {}
         return data
     end
 
+    function unsign(value)
+        return value + 128
+    end
+    function sign(value)
+        return value - 128
+    end
+
+    function newFourByteNumber(byte1, byte2, byte3, byte4)
+        local fbn = {}
+
+        --  This will REALLY need improving later, so I can actually do math with these four bit numbers
+        --  For now, all I need is an incrementation method, and a way to access the bytes
+
+        function fbn:increment(by)
+            local bytes = rawget(self, "bytes")
+            if by == nil then
+                by = 1
+            end
+            for i=4, 2, -1 do
+                if bytes[i] > 255 then
+                    bytes[i] = 0
+                    bytes[i - 1] = bytes[i - 1] + 1
+                end
+                bytes[i] = bytes[i] + 1
+                if bytes[i] > 255 then
+                    bytes[i] = 0
+                    bytes[i - 1] = bytes[i - 1] + 1
+                end
+            end
+            if bytes[1] > 255 then
+                bytes = {0,0,0,0}
+            end
+            rawset(self, "bytes", bytes)
+        end
+
+        function fbn:getBytes()
+            return rawget(self, "bytes")
+        end
+
+        return setmetatable({["bytes"]={byte1,byte2,byte3,byte4}}, fbn)
+    end
+
     --  Static Methods
     function USFS.formatDisk(diskProxy)
 
@@ -136,6 +143,41 @@ local USFS = {}
                 "Unable to read super disk!"
             )
         )
+    end
+
+    function USFS:incrementSuperBlockTableLength(count)
+        local proxy = rawget(self, "proxy")
+        if count == nil then
+            count = 1
+        end
+        local superblock = rawget(self, "superblock")
+        local tableLengthIndex = _CONST["superBlock"]["structure"][4]
+        local offset = tableLengthIndex["offset"]
+        
+        local currentValue = superblock["indexTableLength"]
+        local convobj = newFourByteNumber(
+            unsign(currentValue[1]), 
+            unsign(currentValue[2]), 
+            unsign(currentValue[3]), 
+            unsign(currentValue[4])
+        )
+        convobj:increment(1)
+        local newValue = convobj:getBytes()
+
+        proxy.writeByte(offset + 0, sign(newValue[1]))
+        proxy.writeByte(offset + 1, sign(newValue[2]))
+        proxy.writeByte(offset + 2, sign(newValue[3]))
+        proxy.writeByte(offset + 3, sign(newValue[4]))
+
+        superblock["indexTableLength"] = {sign(newValue[1]), sign(newValue[2]), sign(newValue[3]), sign(newValue[4])}
+        rawset(self, "superblock", superblock)
+    end
+
+    function USFS:writeSuperBlock(newSuperBlock)
+        --  Write out a new super block!
+        if newSuperBlock == nil then
+            newSuperBlock = rawget(self, "superblock")
+        end
     end
 
     function USFS:ensureMinimumCache()
@@ -233,6 +275,42 @@ local USFS = {}
         rawset(self, "cache", cache)
 
         return map
+    end
+
+    function USFS:allocateIndexEntry()
+        --  Just a combo caller. It first checks if it can reallocate an index entry, and if not, it creates one
+    end
+
+    function USFS:createIndexEntry()
+        --  Create a brand new entry at the very end of the table. This should be done AFTER you try running the reallocateIndexEntry
+        --  method! Otherwise, a bunch of unused space will exist!
+        local superblock = rawget(self, "superblock")
+    end
+
+    function USFS:reallocateIndexEntry()
+        --  Search through the index table, to find the first free place to add a new entry
+        --  Recall, if the entry has a type zero, that means unused (NULL), meaning we can overwrite that slot!
+        local superblock = rawget(self, "superblock")
+        for entryID=1, superblock["indexTableLength"] do
+            local entry = self:readIndexTableEntry(entryID)
+            if entry["type"] == 0 then
+                return entryID
+            end
+        end
+        return nil
+    end
+
+    function USFS:buildChunkMap()
+        -- Build a map of all the chunks, and their availablity status
+        local chunks = {["all"] = {}, ["free"] = {}, ["used"] = {}, ["trash"] = {}}
+        local proxy = rawget(self, "proxy")
+        local cache = rawget(self, "cache")
+
+        local totalEntries = 
+    end
+
+    function USFS:buildTrashList()
+        --  Create a list of all objects that are TRASHED, but not 
     end
 
 return USFS

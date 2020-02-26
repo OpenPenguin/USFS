@@ -1,0 +1,11 @@
+USFS stands for Ultra-Simple File System. It's a file system developed by me, Ethan Manzi (coderboy14), to acheive exactly what the name implies. Create a very simple file system! It's designed to allow for usage of unmanaged disks for projects, while still having a functioning file system!
+
+One big requirement I had, and have, while working on this, is it CANNOT use any os-provided APIs. I want this code to be functional, even if you want to implement your own operating system in OpenComputers. Add it to your EEPROMs code, sure! I wanted this code to be as highly portable as possible, that's also why another requirement is it CANNOT import code from other files. Any methods and code it needs needs to be within that one, single, lua file.
+
+The code is currently very incomplete. I'm not very good at working with low-level filesystems, so I'm amazed that I was even able to come up with a concept that could even just potentially be functional. The code is commented a bit, I tried to comment pretty heavily to make it more readable for people who aren't me, but the variable and method names should also help explain the code too.
+
+I'd really appreciate any help anyone can offer, even just helping to debug the code! As I said, I'm not very good at comprehending filesystems, so the quality of this may vary. Use it at your own risk!
+
+One of the primary reasons I wanted to start developing USFS was for a raid software. That's why I made some specific design choices, that caused me to revise my code a few too many times. For example, using a chunking system to manage data, while it causes more overhead (since every single block requires an entry in the index table), it makes it very easily adaptable to a RAID system, where the chunks can be on diffrent systems.
+
+I hope this project works!
